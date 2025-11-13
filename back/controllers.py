@@ -5,6 +5,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import uuid
 import hashlib
 from typing import Optional
+from sqlalchemy import or_, and_, select
 
 # tipo_documento CRUD Operations
 def get_tipo_documents(db: Session, skip: int = 0, limit: int = 100):
@@ -25,17 +26,58 @@ def get_usuarios(db: Session, skip: int = 0, limit: int = 100):
         raise HTTPException(status_code=404, detail="No Usuario found")
     return usuarios
 def create_usuario(db: Session, usuario: schemas.UsuarioBase):
-    db_usuario = models.Usuario(**usuario.model_dump())
+    data = usuario.model_dump()
+    existing = db.query(models.Usuario).filter(
+        or_(
+            models.Usuario.email == data.get("email"),
+            models.Usuario.tipo_documento == data.get("tipo_documento"),
+            models.Usuario.numero_documento == data.get("numero_documento"),
+        )
+    ).first()
+    if existing:
+        # Actualizar solo los campos recibidos
+        for key, value in data.items():
+            setattr(existing, key, value)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    db_usuario = models.Usuario(**data)
     db.add(db_usuario)
     db.commit()
     db.refresh(db_usuario)
     return db_usuario
 # Solicitud CRUD Operations
 def get_solicitudes(db: Session, skip: int = 0, limit: int = 100):
-    solicitudes = db.query(models.Solicitud).offset(skip).limit(limit).all()
-    if not solicitudes:
+    """
+    Devuelve solicitudes con datos del usuario (nombres, email), alias del tipo de documento
+    y nombre del estado usando una sola consulta (JOIN). Retorna lista de dicts.
+    """
+    stmt = select(
+        models.Solicitud.id,
+        models.Solicitud.valor_solicitado,
+        models.Solicitud.numero_cuotas,
+        models.Solicitud.fk_id_estado,
+        models.Solicitud.fk_id_usuario,
+        models.Solicitud.created_at,
+        models.Solicitud.updated_at,
+        models.Usuario.nombres.label("usuario_nombres"),
+        models.Usuario.email.label("usuario_email"),
+        models.Tipo_Documento.alias.label("tipo_documento_alias"),
+        models.Estado.nombre.label("estado_nombre"),
+    ).join(
+        models.Usuario, models.Solicitud.fk_id_usuario == models.Usuario.id
+    ).join(
+        models.Tipo_Documento, models.Usuario.fk_id_tipo_documento == models.Tipo_Documento.id
+    ).join(
+        models.Estado, models.Solicitud.fk_id_estado == models.Estado.id
+    ).offset(skip).limit(limit)
+
+    rows = db.execute(stmt).mappings().all()
+    if not rows:
         raise HTTPException(status_code=404, detail="No Solicitud found")
-    return solicitudes
+    # mappings() devuelve RowMapping (dict-like); convertir a dicts para compatibilidad con Pydantic/JSON
+    return list(map(dict, rows))
 def create_solicitud(db: Session, solicitud: schemas.SolicitudCreate):
     db_solicitud = models.Solicitud(**solicitud.model_dump())
     db.add(db_solicitud)
@@ -84,10 +126,17 @@ _tokens: dict[str, int] = {}  # token -> user_id
 def authenticate_user(db: Session, email: str, password: str):
     """
     Devuelve el objeto Usuario si las credenciales son válidas, sino None.
-    TEMPORAL: no se usa hash. Si el campo hashed_password está vacío, se permite el login
-    (útil para pruebas). Si existe, se compara texto plano con el valor almacenado.
+    TEMPORAL: no se usa hash. Si el campo hashed_password está vacío, se permite el login.
+    Si existe hashed_password, se compara texto plano. Filtra solo usuarios tipo_usuario = 2.
     """
-    user = db.query(models.Usuario).filter(models.Usuario.email == email).first()
+    user = db.query(models.Usuario).filter(
+        and_(
+            models.Usuario.email == email,
+            models.Usuario.fk_id_tipo_usuario == 2,
+            models.Usuario.is_active == True
+        )
+    ).first()
+    
     if not user:
         return None
 
@@ -95,7 +144,7 @@ def authenticate_user(db: Session, email: str, password: str):
     if not user.hashed_password:
         return user
 
-    # Si hay un valor en hashed_password lo tratamos como contraseña en texto plano (temporal)
+    # Si hay contraseña, validar que coincida (texto plano por ahora)
     if user.hashed_password != password:
         return None
 
@@ -107,7 +156,18 @@ def create_access_token(user_id: int) -> str:
     return token
 
 def get_user_id_by_token(token: str) -> Optional[int]:
-    return _tokens.get(token)
+    """
+    Devuelve user_id asociado al token. Normaliza el token:
+    - quita espacios en los extremos
+    - si incluye el prefijo 'Bearer ' lo elimina
+    """
+    if not token:
+        return None
+    t = token.strip()
+    # soportar casos donde se pase "Bearer <token>" por error
+    if t.lower().startswith("bearer "):
+        t = t.split(" ", 1)[1].strip()
+    return _tokens.get(t)
 
 def get_usuario_by_id(db: Session, user_id: int):
     return db.query(models.Usuario).filter(models.Usuario.id == user_id).first()
@@ -138,5 +198,18 @@ def get_plan_pagos_by_user_id(db: Session, user_id: int):
             "plan_pagos": planos
         })
     return result
+
+def update_solicitud_estado(db: Session, solicitud_id: int, nuevo_estado: int):
+    """
+    Actualiza el estado (fk_id_estado) de una solicitud por su ID.
+    """
+    solicitud = db.query(models.Solicitud).filter(models.Solicitud.id == solicitud_id).first()
+    if not solicitud:
+        raise HTTPException(status_code=404, detail="Solicitud not found")
+    
+    solicitud.fk_id_estado = nuevo_estado
+    db.commit()
+    db.refresh(solicitud)
+    return solicitud
 
 

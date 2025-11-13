@@ -20,7 +20,6 @@ class TipoDocumento(TipoDocumentoBase):
 class UsuarioBase(BaseModel):
     nombres: str
     apellidos: str
-    username: str
     email: EmailStr
     celular: Optional[str] = None
     numero_documento: str
@@ -29,6 +28,9 @@ class UsuarioBase(BaseModel):
     fk_id_tipo_usuario: Optional[int] = 1
     hashed_password : Optional[str] = None
 class UsuarioCreate(UsuarioBase):
+    pass
+class UsuarioResponse(UsuarioBase):
+    id: int
     pass
 class UsarioUpdatePass(BaseModel):
     password: str
@@ -50,15 +52,29 @@ class TipoUsuario(TipoUsuarioBase):
         from_attributes = True
 # Solicitud
 class SolicitudBase(BaseModel):
-    usuario_id: int
     valor_solicitado: float
     numero_cuotas: int
-    fk_id_estado: int
+    fk_id_estado: int = 1
     fk_id_usuario: int
 class SolicitudCreate(SolicitudBase):
     pass
 class Solicitud(SolicitudBase):
     id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    class Config:
+        from_attributes = True
+# Nueva respuesta enriquecida para Solicitud con datos del usuario y estado
+class SolicitudResponse(BaseModel):
+    id: int
+    valor_solicitado: float
+    numero_cuotas: int
+    fk_id_estado: int
+    fk_id_usuario: int
+    usuario_nombres: Optional[str] = None
+    usuario_email: Optional[EmailStr] = None
+    tipo_documento_alias: Optional[str] = None
+    estado_nombre: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     class Config:
@@ -78,7 +94,7 @@ class PlanPagosBase(BaseModel):
     valor_cuota: float
     saldo_pendiente: float
     fk_id_solicitud: int
-class PlanPagosCreate(PlanPagosBase):
+class PlanPagosCreate(BaseModel):
     pass
 class PlanPagos(PlanPagosBase):
     id: int
@@ -93,3 +109,10 @@ class calcularPlanPagos(BaseModel):
 class planPagosResponse(BaseModel):
     PlanPagos: Optional[list[calcularPlanPagos]] = None
     total_pago: Optional[float] = None
+# Login Schema
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+# Actualizar Estado de Solicitud
+class SolicitudUpdateEstado(BaseModel):
+    fk_id_estado: int

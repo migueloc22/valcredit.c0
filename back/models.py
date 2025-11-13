@@ -59,7 +59,6 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True, index=True)
     nombres = Column(String(100), nullable=False)
     apellidos = Column(String(100), nullable=False)
-    username = Column(String(50), unique=True, nullable=False)
     email = Column(String(100), unique=True, nullable=False)
     celular = Column(String(20), nullable=True)
     numero_documento = Column(String(50), unique=True, nullable=False)
