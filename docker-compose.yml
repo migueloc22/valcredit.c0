@@ -1,0 +1,32 @@
+services:
+  # Backend FastAPI
+  back:
+    build:
+      context: ./back
+      dockerfile: Dockerfile
+    container_name: valcredi_back
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./back:/app
+    env_file:
+      - ./back/.env
+    restart: unless-stopped
+
+  # Frontend React/Vite
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    container_name: valcredi_front
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./front:/app
+      - /app/node_modules
+    env_file:
+      - ./front/.env
+    depends_on:
+      - back
+    restart: unless-stopped
+

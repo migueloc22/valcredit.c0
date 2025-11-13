@@ -17,4 +17,10 @@ venv*/
 pip-log.txt
 pip-delete-this-directory.txt
 *.sqlite3
-*.env
+.env
+.env.local
+.env.*.local
+back/.env
+front/.env
+!back/.env.example
+!front/.env.example
